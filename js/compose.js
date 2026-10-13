@@ -258,7 +258,11 @@ export function composeFigure(doc, solved, opts = {}) {
     if (f && qa.kind === "joint" && qb.kind === "joint") clips += renderClip(f, th, lw);
   }
   let svg = layers.under + layers.body + layers.over + clips;
-  for (const { t, g } of tubes) svg += `<g${opts.overlay ? ` data-tube="${t.id}"` : ""}>${renderTube(g, t, th, lw)}</g>`;
+  for (const { t, g } of tubes) {
+    // 画面では、指でも押せるよう透明な太い線を当たり判定に重ねる
+    const hit = opts.overlay ? `<path d="M${g.p0.map(n2).join(" ")}C${[...g.p1, ...g.p2, ...g.p3].map(n2).join(" ")}" fill="none" stroke="transparent" stroke-width="${n2(HOSE_W * 2.6)}"/>` : "";
+    svg += `<g${opts.overlay ? ` data-tube="${t.id}"` : ""}>${renderTube(g, t, th, lw)}${hit}</g>`;
+  }
 
   if (benchY != null) {
     const x0 = core.x0 - fs, x1 = core.x1 + fs;

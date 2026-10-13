@@ -6,7 +6,7 @@ import {
   newDoc, normalizeDoc, addPart, getPart, removePart, detachPart, addTube, canMate, solve, componentOf,
   transformParts, moveParts, snapTransform, buildShape, itemPort, compBox, linkHasClip,
 } from "./scene.js";
-import { composeFigure, labelText, tubeGeometry } from "./compose.js";
+import { composeFigure, labelText, tubeGeometry, tubeFlow } from "./compose.js";
 import { tidy } from "./layout.js";
 import { TEMPLATES, instantiate } from "./templates.js";
 import { runChecks } from "./checks.js";
@@ -33,7 +33,14 @@ const state = {
   past: [], future: [], name: "labtsumiki",
   // タブ: 表示中のタブの中身は state.doc などにあり、ほかのタブの中身は tabs[i] にしまってある
   tabs: [{ title: "図 1" }], active: 0,
+  // タッチ・ペン: 長押しの待ち、ペンを使っている間は手のひらのタッチを無視する
+  press: null, penUntil: 0, lastType: "mouse", suppressUp: false, lastTap: null,
 };
+
+/** 指で操作しているか (当たり判定や吸い付きの距離を広げる) */
+const isTouch = (type = state.lastType) => type === "touch";
+const coarse = () => window.matchMedia?.("(pointer: coarse)").matches;
+const LONG_PRESS_MS = 480;
 let saved = "";
 
 /* ================= 履歴・保存 ================= */
@@ -250,7 +257,7 @@ function toScene(e) {
 function drawOverlay() {
   const sv = state.solved;
   if (!sv) return;
-  const k = state.view.k, r = 4.5 / k, sw = 1.5 / k;
+  const k = state.view.k, r = (coarse() ? 7 : 4.5) / k, sw = 1.5 / k;
   let s = "";
   const mark = (q, cls) => `<circle class="port-mark ${cls}" cx="${n2(q.wx)}" cy="${n2(q.wy)}" r="${n2(r)}" stroke-width="${n2(sw)}"/>`;
 
@@ -356,10 +363,16 @@ function afterEdit() {
 
 function onPointerDown(e) {
   const canvas = $("canvas");
+  // Apple Pencil などのペンを使っている間 (と離した直後) は、手のひらのタッチを無視する
+  if (e.pointerType === "pen") state.penUntil = Infinity;
+  else if (e.pointerType === "touch" && performance.now() < state.penUntil) return;
+  state.lastType = e.pointerType || "mouse";
+  hideMenu();
   canvas.focus({ preventScroll: true });
-  canvas.setPointerCapture(e.pointerId);
+  try { canvas.setPointerCapture(e.pointerId); } catch { /* 合成イベントなど */ }
   state.pointers.set(e.pointerId, [e.clientX, e.clientY]);
   if (state.pointers.size === 2) {
+    cancelPress();
     cancelDrag();
     const [a, b] = [...state.pointers.values()];
     state.pinch = { d: dist(...a, ...b), k: state.view.k, tx: state.view.tx, ty: state.view.ty, cx: (a[0] + b[0]) / 2, cy: (a[1] + b[1]) / 2 };
@@ -367,6 +380,11 @@ function onPointerDown(e) {
   }
   if (e.button !== undefined && e.button > 1) return;
   const pt = toScene(e);
+  // 指・ペンの長押しで右クリックと同じメニューを出す
+  if (e.pointerType === "touch" || e.pointerType === "pen") {
+    const target = e.target, x = e.clientX, y = e.clientY;
+    state.press = { x, y, tol: e.pointerType === "pen" ? 6 : 10, timer: setTimeout(() => longPress(target, x, y), LONG_PRESS_MS) };
+  }
   if (e.button === 1) {
     state.drag = { kind: "pan", sx: e.clientX, sy: e.clientY, tx: state.view.tx, ty: state.view.ty };
     return;
@@ -414,7 +432,9 @@ function onPointerDown(e) {
 }
 
 function onPointerMove(e) {
+  if (e.pointerType === "touch" && performance.now() < state.penUntil) return;
   if (state.pointers.has(e.pointerId)) state.pointers.set(e.pointerId, [e.clientX, e.clientY]);
+  if (state.press && Math.hypot(e.clientX - state.press.x, e.clientY - state.press.y) > state.press.tol) cancelPress();
   if (state.pinch && state.pointers.size === 2) {
     const [a, b] = [...state.pointers.values()];
     const P = state.pinch, f = dist(...a, ...b) / P.d;
@@ -447,7 +467,7 @@ function onPointerMove(e) {
     return;
   }
   if (d.kind !== "part") return;
-  if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 4) return;
+  if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < (isTouch() ? 8 : 4)) return;
   if (!d.moved) {
     d.moved = true;
     if (d.detach) detachPart(state.doc, d.pid);
@@ -459,7 +479,7 @@ function onPointerMove(e) {
   }
   moveParts(state.doc, d.ids, pt[0] - d.start[0], pt[1] - d.start[1]);
   const sv = solve(state.doc);
-  const { best, targets } = findSnap(sv, d.ids, 16 / state.view.k);
+  const { best, targets } = findSnap(sv, d.ids, (isTouch() ? 28 : 16) / state.view.k);
   d.targets = targets;
   d.snap = best;
   if (best) transformParts(state.doc, d.ids, snapTransform(getPart(state.doc, best.id), best.q, best.t));
@@ -473,6 +493,15 @@ function onPointerUp(e) {
     if (state.pointers.size < 2) state.pinch = null;
     return;
   }
+  if (e.pointerType === "pen") state.penUntil = performance.now() + 600;
+  cancelPress();
+  if (state.suppressUp) {
+    // 長押しでメニューを出した後の指離れは何もしない
+    state.suppressUp = false;
+    state.drag = null;
+    $("canvas").classList.remove("panning");
+    return;
+  }
   const d = state.drag;
   state.drag = null;
   $("canvas").classList.remove("panning");
@@ -482,7 +511,13 @@ function onPointerUp(e) {
     return;
   }
   if (!d || d.kind !== "part") return;
-  if (!d.moved) return;
+  if (!d.moved) {
+    // 狭い画面では、部品をダブルタップすると設定の欄を開く
+    const now = performance.now();
+    if (state.lastTap?.id === d.pid && now - state.lastTap.t < 350 && window.innerWidth <= 900) openInspectorPanel();
+    state.lastTap = { id: d.pid, t: now };
+    return;
+  }
   if (d.snap) makeLink(d.snap);
   for (const id of d.ids) {
     const p = getPart(state.doc, id);
@@ -491,6 +526,114 @@ function onPointerUp(e) {
   afterEdit();
   commit();
   refresh();
+}
+
+/* ================= 右クリック・長押しのメニュー ================= */
+
+function cancelPress() {
+  if (state.press) clearTimeout(state.press.timer);
+  state.press = null;
+}
+
+function longPress(target, x, y) {
+  state.press = null;
+  if (state.pinch || state.pointers.size !== 1 || state.drag?.moved) return;
+  // つかみかけた部品は元の位置のまま
+  state.drag = null;
+  $("canvas").classList.remove("panning");
+  state.suppressUp = true;
+  navigator.vibrate?.(12);
+  openContextMenu(target, x, y);
+}
+
+/** 画面の点 (x, y) にある物 (target) に合わせたメニューを出す */
+function openContextMenu(target, x, y) {
+  const lid = target?.closest?.("[data-label]")?.dataset.label;
+  const pid = target?.closest?.("[data-id]")?.dataset.id || (lid && getPart(state.doc, lid) ? lid : null);
+  const tid = target?.closest?.("[data-tube]")?.dataset.tube || (lid && !pid ? lid : null);
+  if (pid) state.sel = { type: "part", id: pid };
+  else if (tid) state.sel = { type: "tube", id: tid };
+  drawOverlay();
+  renderInspector();
+  const items = pid ? partMenu(pid) : tid ? tubeMenu(tid) : canvasMenu(x, y);
+  showMenu({ x, y }, items);
+}
+
+function partMenu(id) {
+  const part = getPart(state.doc, id), it = state.solved.items.get(id);
+  const links = state.doc.links.filter((l) => l.a.id === id || l.b.id === id);
+  const jointLinks = links.filter((l) => [l.a, l.b].every((e) => itemPort(state.solved.items.get(e.id), e.port)?.kind === "joint"));
+  const shown = labelShownFor(it);
+  const items = [];
+  if (window.innerWidth <= 900) items.push({ label: "この部品の設定を開く", action: () => openInspectorPanel() });
+  items.push(
+    { label: "右に回す 15°", key: "R", action: () => rotateSel(15) },
+    { label: "左に回す 15°", key: "Shift+R", action: () => rotateSel(-15) },
+    { label: "左右反転", key: "F", action: () => flipSel() },
+    "-",
+    { label: "複製", key: "Ctrl+D", action: () => duplicateSel() },
+    { label: "切り離す", disabled: !links.length, action: () => { detachPart(state.doc, id); nudgeApart(id); afterEdit(); commit(); refresh(); } },
+    { label: "手前に描く", action: () => reorder(1) },
+    { label: "奥に描く", action: () => reorder(-1) },
+    "-",
+    { label: shown ? "ラベルを隠す" : "ラベルを出す", action: () => { part.label.show = !shown; commit(); refresh(); } },
+  );
+  if (part.label.pos) items.push({ label: "ラベルを自動の位置に戻す", action: () => { part.label.pos = null; commit(); refresh(); } });
+  if (jointLinks.length) {
+    const on = jointLinks.every((l) => linkHasClip(state.doc, l));
+    items.push({ label: on ? "すり合わせのクリップを外す" : "すり合わせにクリップを付ける", action: () => { for (const l of jointLinks) l.clip = !on; commit(); refresh(); } });
+  }
+  items.push("-", { label: "削除", key: "Delete", danger: true, action: () => deleteSel() });
+  return items;
+}
+
+function tubeMenu(id) {
+  const t = state.doc.tubes.find((x) => x.id === id);
+  const items = [];
+  if (window.innerWidth <= 900) items.push({ label: "ホースの設定を開く", action: () => openInspectorPanel() });
+  const g = tubeGeometry(state.solved, t);
+  const dir = g ? tubeFlow(g, t).dir : 0;
+  items.push(
+    { label: "流れの矢印を逆にする", disabled: !dir, action: () => { t.arrow = dir > 0 ? "ba" : "ab"; commit(); refresh(); } },
+    { label: t.arrow === "none" ? "流れの矢印を自動で付ける" : "流れの矢印を消す", action: () => { t.arrow = t.arrow === "none" ? "auto" : "none"; commit(); refresh(); } },
+    { label: t.label.show ? "ラベルを隠す" : "ラベルを出す", action: () => { t.label.show = !t.label.show; commit(); refresh(); } },
+  );
+  if (t.label.pos) items.push({ label: "ラベルを自動の位置に戻す", action: () => { t.label.pos = null; commit(); refresh(); } });
+  items.push("-", { label: "ホースを削除", key: "Delete", danger: true, action: () => deleteSel() });
+  return items;
+}
+
+function canvasMenu(x, y) {
+  return [
+    { label: "部品を追加…", action: () => openPalettePanel() },
+    { label: "ひな形から…", action: () => templateMenu({ x, y }) },
+    { label: state.hose ? "ホースの道具を終わる" : "ホースでつなぐ", key: "H", action: () => setHoseMode(!state.hose) },
+    "-",
+    { label: "元に戻す", key: "Ctrl+Z", disabled: !state.past.length, action: () => undo() },
+    { label: "やり直し", key: "Ctrl+Y", disabled: !state.future.length, action: () => redo() },
+    "-",
+    { label: "整列", disabled: !state.doc.parts.length, action: () => $("btn-tidy").click() },
+    { label: "全体を表示", key: "0", action: () => fitView() },
+    { label: "書き出し…", disabled: !state.doc.parts.length, action: () => openExport() },
+  ];
+}
+
+function labelShownFor(it) {
+  const s = it.part.label?.show;
+  return s == null ? it.def.labelDefault !== false : !!s;
+}
+
+function openInspectorPanel() {
+  document.body.classList.remove("show-palette");
+  document.body.classList.add("show-inspector");
+}
+
+function openPalettePanel() {
+  if (window.innerWidth <= 900) {
+    document.body.classList.remove("show-inspector");
+    document.body.classList.add("show-palette");
+  }
+  $("palette-search").focus({ preventScroll: true });
 }
 
 /** ラベルの持ち主 (部品かホース) の label */
@@ -542,7 +685,7 @@ function setHoseMode(on) {
 }
 
 function hoseClick(pt) {
-  let best = null, bd = 14 / state.view.k;
+  let best = null, bd = (isTouch() || state.lastType === "pen" ? 26 : 14) / state.view.k;
   for (const it of state.solved.items.values()) {
     for (const q of it.ports) {
       if (q.kind !== "hose") continue;
@@ -1022,20 +1165,36 @@ function nudgeApart(id) {
 
 /* ================= メニュー ================= */
 
+/** メニューを出す。anchor はボタン (その下に出す) か、画面の点 { x, y } */
 function showMenu(anchor, items) {
   const m = $("menu");
   m.innerHTML = "";
+  const touch = coarse();
   for (const it of items) {
-    if (it === "-") { m.appendChild(el("div", { class: "sep" })); continue; }
-    const b = el("button", { type: "button", role: "menuitem" }, it.label);
+    if (it === "-") { m.appendChild(el("div", { class: "sep", role: "separator" })); continue; }
+    const kids = [el("span", {}, it.label)];
+    if (it.key && !touch) kids.push(el("kbd", {}, it.key));
+    const b = el("button", { type: "button", role: "menuitem", class: it.danger ? "danger" : null, disabled: !!it.disabled }, kids);
     b.addEventListener("click", () => { hideMenu(); it.action(); });
     m.appendChild(b);
   }
-  const r = anchor.getBoundingClientRect();
   m.hidden = false;
-  m.style.left = `${Math.min(r.left, window.innerWidth - m.offsetWidth - 8)}px`;
-  m.style.top = `${r.bottom + 4}px`;
-  m.querySelector("button")?.focus();
+  // 画面の端 (ノッチ・Dynamic Island・ホームバーの余白を含む) からはみ出さないように置く
+  const cs = getComputedStyle(document.documentElement);
+  const inset = (k) => parseFloat(cs.getPropertyValue(k)) || 0;
+  const minX = 8 + inset("--safe-l"), maxX = window.innerWidth - 8 - inset("--safe-r") - m.offsetWidth;
+  const minY = 8 + inset("--safe-t"), maxY = window.innerHeight - 8 - inset("--safe-b") - m.offsetHeight;
+  let x, y;
+  if (anchor.getBoundingClientRect) {
+    const r = anchor.getBoundingClientRect();
+    x = r.left; y = r.bottom + 4;
+  } else {
+    x = anchor.x + 2; y = anchor.y + 2;
+    if (y > maxY) y = anchor.y - m.offsetHeight - 2;
+  }
+  m.style.left = `${Math.max(minX, Math.min(x, maxX))}px`;
+  m.style.top = `${Math.max(minY, Math.min(y, maxY))}px`;
+  if (!touch) m.querySelector("button:not(:disabled)")?.focus();
 }
 
 function hideMenu() {
@@ -1121,6 +1280,19 @@ function onKey(e) {
   if (mod && (k === "y" || k === "Y")) { e.preventDefault(); redo(); return; }
   if (mod && (k === "d" || k === "D")) { e.preventDefault(); duplicateSel(); return; }
   if (mod) return;
+  if (k === "ContextMenu" || (k === "F10" && e.shiftKey)) {
+    // キーボードからのメニュー: 選んでいる物の真ん中に出す
+    e.preventDefault();
+    const r = $("canvas").getBoundingClientRect();
+    let x = r.left + r.width / 2, y = r.top + r.height / 2, target = null;
+    if (state.sel?.type === "part") {
+      const b = state.solved.items.get(state.sel.id)?.box;
+      if (b) { x = r.left + state.view.tx + ((b.x0 + b.x1) / 2) * state.view.k; y = r.top + state.view.ty + ((b.y0 + b.y1) / 2) * state.view.k; }
+      target = $("scene").querySelector(`[data-id="${state.sel.id}"]`);
+    } else if (state.sel?.type === "tube") target = $("scene").querySelector(`[data-tube="${state.sel.id}"]`);
+    openContextMenu(target, x, y);
+    return;
+  }
   if (k === "Delete" || k === "Backspace") { e.preventDefault(); deleteSel(); }
   else if (k === "Escape") {
     hideMenu();
@@ -1167,7 +1339,15 @@ function init() {
   canvas.addEventListener("pointerdown", onPointerDown);
   canvas.addEventListener("pointermove", onPointerMove);
   canvas.addEventListener("pointerup", onPointerUp);
-  canvas.addEventListener("pointercancel", (e) => { state.pointers.delete(e.pointerId); cancelDrag(); state.pinch = null; });
+  canvas.addEventListener("pointercancel", (e) => {
+    // iPadOS のジェスチャーなどで操作が打ち切られたとき (ペンの場合も手のひらの無視を解く)
+    if (e.pointerType === "pen") state.penUntil = performance.now() + 600;
+    state.pointers.delete(e.pointerId);
+    cancelPress();
+    cancelDrag();
+    state.pinch = null;
+    state.suppressUp = false;
+  });
   canvas.addEventListener("wheel", onWheel, { passive: false });
   canvas.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("text/x-labtsumiki-part")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } });
   canvas.addEventListener("drop", (e) => {
@@ -1179,6 +1359,17 @@ function init() {
   window.addEventListener("keydown", onKey);
   window.addEventListener("resize", () => applyView());
   document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#menu, #btn-templates, #btn-file")) hideMenu(); });
+  // 右クリック (PC・トラックパッド・マウス付きの iPad)。指やペンの長押しは自前で扱うので、ブラウザのメニューは止める
+  canvas.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    if (state.lastType === "touch" || state.lastType === "pen") return;
+    cancelDrag();
+    // つかんだ状態 (pointer capture) だと e.target がキャンバスになるので、その点にある物を調べ直す
+    openContextMenu(document.elementFromPoint(e.clientX, e.clientY) || e.target, e.clientX, e.clientY);
+  });
+  window.addEventListener("blur", hideMenu);
+  window.addEventListener("resize", hideMenu);
+  canvas.addEventListener("wheel", hideMenu, { passive: true });
 
   $("palette-search").addEventListener("input", buildPalette);
   $("btn-templates").addEventListener("click", (e) => templateMenu(e.currentTarget));

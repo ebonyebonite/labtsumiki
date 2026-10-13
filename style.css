@@ -17,6 +17,11 @@
   --radius: 10px;
   --topbar-h: 52px;
   --tabbar-h: 36px;
+  /* ノッチ・Dynamic Island・ホームバーをよける余白 (iPhone・iPad。ほかの端末では 0) */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
   --sel: #1f77b4;
   --port: #2e7d32;
   --port-bad: #c62828;
@@ -48,18 +53,25 @@
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body {
+  height: 100dvh;
   background: var(--bg);
   color: var(--text);
   font: 14px/1.5 system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", sans-serif;
   overflow: hidden;
+  overscroll-behavior: none;
+  /* 長押しで文字選択・コピーの吹き出しが出ないようにする (入力欄は除く) */
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
-button, input, select { font: inherit; color: inherit; }
+input, textarea { -webkit-user-select: text; user-select: text; }
+button, input, select { font: inherit; color: inherit; touch-action: manipulation; }
 
 /* ---- 上の帯 ---- */
 .topbar {
-  height: var(--topbar-h);
+  height: calc(var(--topbar-h) + var(--safe-t));
   display: flex; align-items: center; gap: 10px;
-  padding: 0 12px;
+  padding: var(--safe-t) max(12px, var(--safe-r)) 0 max(12px, var(--safe-l));
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
@@ -94,7 +106,7 @@ button, input, select { font: inherit; color: inherit; }
 /* ---- タブ ---- */
 .tabbar {
   height: var(--tabbar-h); display: flex; align-items: flex-end; gap: 4px;
-  padding: 0 10px; background: var(--surface-2); border-bottom: 1px solid var(--border);
+  padding: 0 max(10px, var(--safe-r)) 0 max(10px, var(--safe-l)); background: var(--surface-2); border-bottom: 1px solid var(--border);
 }
 .tab-list { display: flex; gap: 2px; overflow-x: auto; min-width: 0; scrollbar-width: none; }
 .tab {
@@ -111,13 +123,13 @@ button, input, select { font: inherit; color: inherit; }
 
 /* ---- 3 列の配置 ---- */
 .layout {
-  height: calc(100% - var(--topbar-h) - var(--tabbar-h));
+  height: calc(100% - var(--topbar-h) - var(--tabbar-h) - var(--safe-t));
   display: grid;
   grid-template-columns: 236px 1fr 300px;
 }
 .panel { background: var(--surface); overflow-y: auto; }
-.palette { border-right: 1px solid var(--border); padding: 10px; }
-.inspector { border-left: 1px solid var(--border); padding: 12px; }
+.palette { border-right: 1px solid var(--border); padding: 10px 10px calc(10px + var(--safe-b)) max(10px, var(--safe-l)); }
+.inspector { border-left: 1px solid var(--border); padding: 12px max(12px, var(--safe-r)) calc(12px + var(--safe-b)) 12px; }
 .panel-head input { width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
 .hint { color: var(--muted); font-size: 12px; margin: 6px 0; }
 .hint.small { font-size: 11px; }
@@ -143,9 +155,10 @@ button, input, select { font: inherit; color: inherit; }
 .grid-line { stroke: var(--grid); stroke-width: 0.5; }
 .paper { fill: #ffffff; stroke: #9aa4b2; stroke-dasharray: 3 2; }
 #scene [data-id], #scene [data-tube], #scene [data-label] { cursor: move; }
+#overlay { pointer-events: none; }
 .clip-check { display: inline-flex; align-items: center; gap: 2px; font-size: 11.5px; color: var(--muted); margin-right: 4px; }
 .paper-size {
-  position: absolute; left: 10px; bottom: 8px; font-size: 12px; color: var(--muted);
+  position: absolute; left: 10px; bottom: calc(8px + var(--safe-b)); font-size: 12px; color: var(--muted);
   background: color-mix(in srgb, var(--surface) 85%, transparent); padding: 2px 8px; border-radius: 6px;
 }
 .hint-bar {
@@ -203,18 +216,33 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--border); borde
 
 /* ---- メニュー・ダイアログ・通知 ---- */
 .menu {
-  position: fixed; z-index: 30; min-width: 200px; max-height: 70vh; overflow-y: auto;
+  position: fixed; z-index: 30; min-width: 200px; overflow-y: auto; overscroll-behavior: contain;
+  max-height: calc(100dvh - 16px - var(--safe-t) - var(--safe-b));
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px;
   box-shadow: 0 8px 28px rgb(0 0 0 / 0.18);
 }
 .menu button {
-  display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 7px 12px; border-radius: 6px; cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between; gap: 18px;
+  width: 100%; text-align: left; border: 0; background: transparent; padding: 7px 12px; border-radius: 6px; cursor: pointer;
 }
-.menu button:hover, .menu button:focus-visible { background: var(--surface-2); }
+.menu button:hover:not(:disabled), .menu button:focus-visible { background: var(--surface-2); }
+.menu button:disabled { opacity: 0.4; cursor: default; }
+.menu button.danger { color: var(--danger); }
+.menu kbd { color: var(--muted); border: 0; padding: 0; font-size: 11px; }
+/* 指で使う端末では押しやすい大きさにする */
+@media (pointer: coarse) {
+  .menu { min-width: 230px; }
+  .menu button { min-height: 44px; font-size: 15px; }
+  .tab { height: 34px; }
+  .tab.on { height: 35px; }
+  .tab-close { width: 32px; height: 32px; }
+  .row select, .row input[type="number"], .row input[type="text"] { min-height: 32px; }
+}
 .menu .sep { height: 1px; background: var(--border); margin: 4px 0; }
 .dialog {
   border: 1px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--text);
-  padding: 18px 20px; width: min(520px, calc(100vw - 32px));
+  padding: 18px 20px; width: min(520px, calc(100vw - 32px - var(--safe-l) - var(--safe-r)));
+  max-height: calc(100dvh - 32px - var(--safe-t) - var(--safe-b)); overflow-y: auto;
 }
 .dialog::backdrop { background: rgb(0 0 0 / 0.35); }
 .dialog h2 { margin: 0 0 6px; font-size: 17px; }
@@ -223,7 +251,7 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--border); borde
 .dlg-grid label.check { display: flex; align-items: center; gap: 6px; }
 .dlg-grid input, .dlg-grid select { padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); }
 .toast {
-  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 40;
+  position: fixed; left: 50%; bottom: calc(20px + var(--safe-b)); transform: translateX(-50%); z-index: 40;
   background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 10px; font-size: 13px; max-width: calc(100vw - 32px);
 }
 #print-area { display: none; }
@@ -231,12 +259,12 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--border); borde
 /* ---- 狭い画面: 左右の欄は重ねて出す ---- */
 @media (max-width: 900px) {
   .only-narrow { display: inline-grid; }
-  .topbar { gap: 6px; padding: 0 8px; overflow-x: auto; }
+  .topbar { gap: 6px; padding: var(--safe-t) max(8px, var(--safe-r)) 0 max(8px, var(--safe-l)); overflow-x: auto; }
   .topbar h1 { display: none; }
   .tb-group + .tb-group { padding-left: 6px; }
   .layout { grid-template-columns: 1fr; }
   .panel {
-    position: fixed; top: calc(var(--topbar-h) + var(--tabbar-h)); bottom: 0; z-index: 20; width: min(320px, 88vw);
+    position: fixed; top: calc(var(--topbar-h) + var(--tabbar-h) + var(--safe-t)); bottom: 0; z-index: 20; width: min(320px, 88vw);
     box-shadow: 0 0 24px rgb(0 0 0 / 0.2); transition: transform 0.2s;
   }
   .palette { left: 0; transform: translateX(-105%); }

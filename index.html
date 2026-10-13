@@ -6,12 +6,15 @@
 <meta name="theme-color" content="#1f77b4">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="referrer" content="no-referrer">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ラボつみき">
 <meta name="description" content="ラボつみき: 実験器具を積み木のようにつないで、論文・レポートにそのまま使える白黒の実験装置図 (SVG / PNG / PDF) を作るアプリ。出力した図は CC0 (パブリックドメイン) です。">
 <title>ラボつみき — 実験装置図エディタ</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="style.css?v=1.1.0">
+<link rel="stylesheet" href="style.css?v=1.2.0">
 </head>
 <body>
 
@@ -19,7 +22,7 @@
   <button id="btn-palette" class="icon-btn only-narrow" title="部品" aria-label="部品の一覧">
     <svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>
   </button>
-  <h1 class="brand"><img src="icons/icon.svg" alt="" width="28" height="28">ラボつみき<span class="ver">v1.1.0</span></h1>
+  <h1 class="brand"><img src="icons/icon.svg" alt="" width="28" height="28">ラボつみき<span class="ver">v1.2.0</span></h1>
   <div class="tb-group">
     <button id="btn-templates" class="btn" aria-haspopup="menu">ひな形</button>
     <button id="btn-file" class="btn" aria-haspopup="menu">ファイル</button>
@@ -113,6 +116,6 @@
 <div id="print-area" aria-hidden="true"></div>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-<script type="module" src="js/app.js?v=1.1.0"></script>
+<script type="module" src="js/app.js?v=1.2.0"></script>
 </body>
 </html>
