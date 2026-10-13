@@ -31,6 +31,8 @@ const state = {
   hose: false, hoseStart: null, pointer: null,
   drag: null, pointers: new Map(), pinch: null,
   past: [], future: [], name: "labtsumiki",
+  // タブ: 表示中のタブの中身は state.doc などにあり、ほかのタブの中身は tabs[i] にしまってある
+  tabs: [{ title: "図 1" }], active: 0,
 };
 let saved = "";
 
@@ -77,18 +79,126 @@ function updateUndo() {
   $("btn-redo").disabled = !state.future.length;
 }
 
+/** すべてのタブを保存する (図のデータは文字列のまま埋め込む) */
 function persist() {
-  try { localStorage.setItem(STORE, saved); } catch { /* 保存できなくても動かす */ }
+  const tabs = state.tabs.map((t, i) => `{"title":${JSON.stringify(t.title)},"file":${JSON.stringify(i === state.active ? state.name : t.file || "labtsumiki")},"doc":${i === state.active ? saved : t.saved}}`);
+  try { localStorage.setItem(STORE, `{"version":2,"active":${state.active},"tabs":[${tabs.join(",")}]}`); } catch { /* 保存できなくても動かす */ }
 }
 
-function replaceDoc(doc, name) {
+/** 今のタブの図を置き換える (元に戻すで戻せる) */
+function replaceDoc(doc, name, title) {
   state.doc = doc;
   if (name) state.name = name;
+  if (title) state.tabs[state.active].title = title;
   state.sel = null;
   state.hoseStart = null;
   commit();
+  persist();
   refresh();
   fitView();
+  renderTabs();
+}
+
+/* ================= タブ ================= */
+
+/** 表示中のタブの中身を tabs[active] にしまう */
+function stashActive() {
+  const t = state.tabs[state.active];
+  Object.assign(t, { saved, past: state.past, future: state.future, view: { ...state.view }, file: state.name });
+}
+
+function activateTab(i, { stash = true } = {}) {
+  if (state.drag) cancelDrag();
+  if (stash) stashActive();
+  state.active = i;
+  const t = state.tabs[i];
+  saved = t.saved;
+  state.doc = normalizeDoc(JSON.parse(saved));
+  state.past = t.past || [];
+  state.future = t.future || [];
+  state.name = t.file || "labtsumiki";
+  state.sel = null;
+  if (state.hose) setHoseMode(false);
+  updateUndo();
+  refresh();
+  if (t.view) { state.view = { ...t.view }; applyView(); } else fitView();
+  renderTabs();
+  persist();
+}
+
+/** 新しいタブを開いて表示する */
+function newTab(doc, title, file = "labtsumiki") {
+  stashActive();
+  state.tabs.push({ title: title || nextTabTitle(), file, saved: JSON.stringify(doc), past: [], future: [] });
+  activateTab(state.tabs.length - 1, { stash: false });
+}
+
+function nextTabTitle() {
+  let n = state.tabs.length + 1;
+  while (state.tabs.some((t) => t.title === `図 ${n}`)) n++;
+  return `図 ${n}`;
+}
+
+/** 図を開く: 今のタブが空ならそこに、そうでなければ新しいタブに */
+function openDoc(doc, title, file) {
+  if (!state.doc.parts.length) replaceDoc(doc, file, title);
+  else newTab(doc, title, file);
+}
+
+function closeTab(i) {
+  const isActive = i === state.active;
+  const doc = isActive ? state.doc : JSON.parse(state.tabs[i].saved);
+  if (doc.parts.length && !confirm(`「${state.tabs[i].title}」を閉じます。保存していない図は消えます。よろしいですか?`)) return;
+  if (state.tabs.length === 1) {
+    const d = newDoc();
+    d.settings = { ...state.doc.settings };
+    state.past = [];
+    state.future = [];
+    replaceDoc(d, "labtsumiki", "図 1");
+    return;
+  }
+  if (!isActive) stashActive();
+  state.tabs.splice(i, 1);
+  const next = isActive ? Math.min(i, state.tabs.length - 1) : state.active > i ? state.active - 1 : state.active;
+  if (isActive) activateTab(next, { stash: false });
+  else { state.active = next; renderTabs(); persist(); }
+}
+
+function renameTab(i) {
+  const v = prompt("タブの名前", state.tabs[i].title);
+  if (v == null || !v.trim()) return;
+  state.tabs[i].title = v.trim().slice(0, 40);
+  renderTabs();
+  persist();
+}
+
+function renderTabs() {
+  const list = $("tab-list");
+  list.innerHTML = "";
+  state.tabs.forEach((t, i) => {
+    const on = i === state.active;
+    const name = el("button", { type: "button", class: "tab-name", role: "tab", "aria-selected": String(on), title: on ? "押すと名前を変えられます" : t.title }, t.title);
+    name.addEventListener("click", () => (on ? renameTab(i) : activateTab(i)));
+    const close = el("button", { type: "button", class: "tab-close", title: "閉じる", "aria-label": `${t.title} を閉じる` }, "×");
+    close.addEventListener("click", () => closeTab(i));
+    list.appendChild(el("div", { class: `tab${on ? " on" : ""}` }, [name, close]));
+  });
+}
+
+/** 保存データを読む (タブ付きの形と、図 1 枚だけの古い形) */
+function loadStore(s) {
+  const d = JSON.parse(s);
+  if (d && d.version === 2 && Array.isArray(d.tabs) && d.tabs.length) {
+    state.tabs = d.tabs.map((t, i) => ({ title: String(t.title || `図 ${i + 1}`), file: String(t.file || "labtsumiki"), saved: JSON.stringify(normalizeDoc(t.doc)) }));
+    state.active = Math.min(Math.max(0, d.active | 0), state.tabs.length - 1);
+  } else {
+    state.tabs = [{ title: "図 1", file: "labtsumiki", saved: JSON.stringify(normalizeDoc(d)) }];
+    state.active = 0;
+  }
+  const t = state.tabs[state.active];
+  saved = t.saved;
+  state.doc = normalizeDoc(JSON.parse(saved));
+  state.name = t.file;
 }
 
 /* ================= 描画 ================= */
@@ -832,7 +942,10 @@ function docInspector() {
   ]) keys.append(el("div", {}, [el("kbd", {}, k), ` ${d}`]));
   kf.appendChild(keys);
   nodes.push(kf);
-  nodes.push(el("p", { class: "hint small" }, "作った図は CC0 (パブリックドメイン) です。論文・レポート・授業資料に自由に使えます。"));
+  nodes.push(el("p", { class: "hint small" }, [
+    el("a", { href: "docs/demo.mp4", target: "_blank", rel: "noopener" }, "使い方の動画 (15 秒)"),
+    " ・ 作った図は CC0 (パブリックドメイン) です。論文・レポート・授業資料に自由に使えます。",
+  ]));
   return nodes;
 }
 
@@ -933,9 +1046,8 @@ function templateMenu(anchor) {
   showMenu(anchor, TEMPLATES.map((t) => ({
     label: t.name,
     action: () => {
-      if (state.doc.parts.length && !confirm(`今の図を「${t.name}」で置き換えます。よろしいですか? (元に戻すで戻せます)`)) return;
-      // ファイル名は環境によって日本語が使えないので英字にする
-      replaceDoc(instantiate(t, state.doc.settings), `labtsumiki-${t.id}`);
+      // 今のタブに図があれば新しいタブで開く。ファイル名は環境によって日本語が使えないので英字にする
+      openDoc(instantiate(t, state.doc.settings), t.name, `labtsumiki-${t.id}`);
       toast(`「${t.name}」を読み込みました。部品を押すと大きさなどを変えられます`);
     },
   })));
@@ -943,7 +1055,8 @@ function templateMenu(anchor) {
 
 function fileMenu(anchor) {
   showMenu(anchor, [
-    { label: "新しい図", action: () => { if (!state.doc.parts.length || confirm("今の図を消して新しく始めます。よろしいですか? (元に戻すで戻せます)")) { const d = newDoc(); d.settings = { ...state.doc.settings }; replaceDoc(d, "labtsumiki"); } } },
+    { label: "新しい図 (新しいタブ)", action: () => { const d = newDoc(); d.settings = { ...state.doc.settings }; newTab(d); } },
+    { label: "この図を複製 (新しいタブ)", action: () => newTab(normalizeDoc(JSON.parse(saved)), `${state.tabs[state.active].title} のコピー`, state.name) },
     { label: "開く (.json)…", action: () => $("file-input").click() },
     { label: "保存 (.json)", action: () => saveJson(state.doc, state.name) },
     "-",
@@ -1039,9 +1152,12 @@ function closePanels() {
 function init() {
   try {
     const s = localStorage.getItem(STORE);
-    if (s) state.doc = normalizeDoc(JSON.parse(s));
+    if (s) loadStore(s);
   } catch { state.doc = newDoc(); }
   saved = snapshot();
+  state.tabs[state.active].saved = saved;
+  renderTabs();
+  $("btn-newtab").addEventListener("click", () => { const d = newDoc(); d.settings = { ...state.doc.settings }; newTab(d); });
   buildPalette();
   refresh();
   fitView();
@@ -1082,7 +1198,8 @@ function init() {
     if (!f) return;
     try {
       const doc = normalizeDoc(JSON.parse(await f.text()));
-      replaceDoc(doc, f.name.replace(/\.json$/i, ""));
+      const base = f.name.replace(/\.json$/i, "");
+      openDoc(doc, base.slice(0, 40), base);
     } catch {
       toast("読み込めませんでした (このアプリで保存した .json を選んでください)", 4000);
     }

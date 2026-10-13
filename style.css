@@ -16,6 +16,7 @@
   --grid: #dde2e9;
   --radius: 10px;
   --topbar-h: 52px;
+  --tabbar-h: 36px;
   --sel: #1f77b4;
   --port: #2e7d32;
   --port-bad: #c62828;
@@ -90,9 +91,27 @@ button, input, select { font: inherit; color: inherit; }
 .icon-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .only-narrow { display: none; }
 
+/* ---- タブ ---- */
+.tabbar {
+  height: var(--tabbar-h); display: flex; align-items: flex-end; gap: 4px;
+  padding: 0 10px; background: var(--surface-2); border-bottom: 1px solid var(--border);
+}
+.tab-list { display: flex; gap: 2px; overflow-x: auto; min-width: 0; scrollbar-width: none; }
+.tab {
+  display: flex; align-items: center; max-width: 200px; height: 30px;
+  border: 1px solid var(--border); border-bottom: 0; border-radius: 8px 8px 0 0; background: var(--surface-2);
+}
+.tab.on { background: var(--surface); position: relative; top: 1px; height: 31px; }
+.tab-name { border: 0; background: transparent; padding: 0 4px 0 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+.tab:not(.on) .tab-name { color: var(--muted); }
+.tab-close { border: 0; background: transparent; width: 24px; height: 24px; border-radius: 6px; cursor: pointer; color: var(--muted); }
+.tab-close:hover { background: var(--border); color: var(--text); }
+.icon-btn.sm { width: 28px; height: 28px; margin-bottom: 3px; }
+.icon-btn.sm svg { width: 16px; height: 16px; }
+
 /* ---- 3 列の配置 ---- */
 .layout {
-  height: calc(100% - var(--topbar-h));
+  height: calc(100% - var(--topbar-h) - var(--tabbar-h));
   display: grid;
   grid-template-columns: 236px 1fr 300px;
 }
@@ -217,7 +236,7 @@ kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--border); borde
   .tb-group + .tb-group { padding-left: 6px; }
   .layout { grid-template-columns: 1fr; }
   .panel {
-    position: fixed; top: var(--topbar-h); bottom: 0; z-index: 20; width: min(320px, 88vw);
+    position: fixed; top: calc(var(--topbar-h) + var(--tabbar-h)); bottom: 0; z-index: 20; width: min(320px, 88vw);
     box-shadow: 0 0 24px rgb(0 0 0 / 0.2); transition: transform 0.2s;
   }
   .palette { left: 0; transform: translateX(-105%); }
