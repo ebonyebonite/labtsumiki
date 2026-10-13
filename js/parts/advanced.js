@@ -124,13 +124,20 @@ define({
 });
 
 /* ---- 分配器 (牛の角) ---- */
+function cowAngles(n) {
+  if (n === 2) return [72, 108];
+  if (n === 3) return [58, 90, 122];
+  if (n === 4) return [52, 77, 103, 128];
+  return Array.from({ length: n }, (_, i) => 45 + (90 * i) / (n - 1));
+}
+
 define({
   type: "cowReceiver",
   name: { ja: "分配器 (牛の角)", en: "cow receiver" },
   cat: "adapter",
   params: [
     pJoint(),
-    pSelect("outlets", "受け口の数", [[3, "3"], [4, "4"]], 3),
+    pSelect("outlets", "受け口の数", [2, 3, 4, 5, 6].map((n) => [n, String(n)]), 3),
     pBool("autoVert", "本体を自動でまっすぐ立てる", true),
     pRange("inAngle", "入口の向き", -178, -2, 1, -165, "°"),
     pBool("barb", "吸引口 (ホース口)", true),
@@ -139,10 +146,13 @@ define({
   build(p) {
     const sh = new Shape();
     const j = jdim(p.joint);
-    const phi = Number(p.inAngle), Li = 46, Lo = 54, R = 17;
+    const phi = Number(p.inAngle), Li = 46, R = 17;
     const ix = Li * Math.cos(phi * DEG), iy = Li * Math.sin(phi * DEG);
-    const n = Number(p.outlets);
-    const angs = n === 4 ? [52, 77, 103, 128] : [58, 90, 122];
+    const n = Math.max(2, Math.min(6, Number(p.outlets) || 3));
+    const angs = cowAngles(n);
+    // 受け口が多いときは、すり合わせ同士がぶつからない長さまで伸ばす
+    const step = (angs[1] - angs[0]) * DEG;
+    const Lo = Math.max(54, (j.wo + 3) / step);
     const outs = angs.map((a) => [Lo * Math.cos(a * DEG), Lo * Math.sin(a * DEG), a]);
     const left = ix < 0;
     const pieces = [circle(0, 0, R), tubeSeg(0, 0, ix, iy, j.wt), ...outs.map(([x, y]) => tubeSeg(0, 0, x, y, j.wt * 0.85))];

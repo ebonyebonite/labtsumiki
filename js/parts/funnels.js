@@ -9,6 +9,11 @@ define({
   type: "dropFunnel",
   name: { ja: "滴下ロート", en: "addition funnel" },
   cat: "funnel",
+  keywords: ["滴下漏斗", "dropping funnel", "圧力平衡"],
+  presets: [
+    { name: { ja: "滴下ロート (圧力平衡管付き)", en: "pressure-equalizing addition funnel" }, params: { equalizer: true } },
+    { name: { ja: "滴下ロート (平衡管なし)", en: "addition funnel" }, params: { equalizer: false } },
+  ],
   params: [
     pSelect("volume", "容量", volOptions([50, 100, 200, 500]), 100),
     pJoint(),
@@ -16,7 +21,7 @@ define({
     pLevel("level", "液量", 0.6),
     pColor("color", "液体の色", "#f2c14e"),
   ],
-  label: (p, lang) => `${lang === "en" ? "pressure-equalizing addition funnel" : "滴下ロート"} (${p.volume} mL)`,
+  label: (p, lang) => `${lang === "en" ? (p.equalizer ? "pressure-equalizing addition funnel" : "addition funnel") : "滴下ロート"} (${p.volume} mL)`,
   build(p) {
     const sh = new Shape();
     const j = jdim(p.joint);

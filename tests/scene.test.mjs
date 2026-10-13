@@ -188,3 +188,29 @@ test("新しい器具のひな形: 分配器の受け器と、ロータリーエ
   const evap = [...s2.items.values()].find((it) => it.def.type === "rotavap");
   assert.ok(flask.box.y1 > evap.box.y0 && flask.box.y1 < evap.box.y1, "フラスコは装置の高さの中");
 });
+
+test("口の数を変えられる: n 口フラスコと分配器", () => {
+  const rbf = allDefs().find((d) => d.type === "rbf");
+  for (let n = 1; n <= 5; n++) {
+    const sh = rbf.build(withDefaults(rbf, { necks: n }), {});
+    assert.equal(sh.ports.filter((q) => q.kind === "joint").length, n);
+  }
+  const cow = allDefs().find((d) => d.type === "cowReceiver");
+  for (let n = 2; n <= 6; n++) {
+    const sh = cow.build(withDefaults(cow, { outlets: n }), {});
+    const outs = sh.ports.filter((q) => /^out\d$/.test(q.id));
+    assert.equal(outs.length, n);
+    // 隣どうしの受け口のすり合わせがぶつからない
+    for (let i = 1; i < n; i++) assert.ok(Math.hypot(outs[i].x - outs[i - 1].x, outs[i].y - outs[i - 1].y) > 24, `outlets ${n}`);
+  }
+});
+
+test("よく使う設定 (presets) はどれも形を作れる", () => {
+  for (const def of allDefs()) {
+    for (const pr of def.presets || []) {
+      assert.ok(pr.name.ja && pr.name.en, def.type);
+      for (const k of Object.keys(pr.params)) assert.ok(def.params.some((q) => q.key === k), `${def.type}.${k}`);
+      assert.ok(def.build(withDefaults(def, pr.params), {}).items.length > 0);
+    }
+  }
+});

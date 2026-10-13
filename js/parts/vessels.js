@@ -26,14 +26,22 @@ function addChips(sh, r) {
   }
 }
 
-/* ---- 丸底フラスコ (一口・二口・三口) ---- */
+/* ---- 丸底フラスコ (一口〜五つ口) ---- */
+const NECK_NAMES = {
+  1: ["丸底フラスコ", "round-bottom flask"],
+  2: ["二口フラスコ", "two-neck flask"],
+  3: ["三口フラスコ", "three-neck flask"],
+  4: ["四つ口フラスコ", "four-neck flask"],
+  5: ["五つ口フラスコ", "five-neck flask"],
+};
+
 define({
   type: "rbf",
   name: { ja: "丸底フラスコ", en: "round-bottom flask" },
   cat: "vessel",
   params: [
     pSelect("volume", "容量", volOptions([10, 25, 50, 100, 200, 300, 500, 1000]), 100),
-    pSelect("necks", "口の数", [[1, "一口"], [2, "二口"], [3, "三口"]], 1),
+    pSelect("necks", "口の数", [[1, "一口"], [2, "二口"], [3, "三口"], [4, "四つ口"], [5, "五つ口"]], 1),
     pJoint(),
     pJoint("sideJoint", "横の口のすり合わせ", "24/40"),
     pSelect("sideStyle", "横の口の向き", [["angled", "斜め"], ["parallel", "まっすぐ"]], "angled"),
@@ -42,11 +50,11 @@ define({
     pBool("stirbar", "撹拌子"),
     pBool("chips", "沸騰石"),
   ],
+  presets: [1, 2, 3, 4].map((n) => ({ name: { ja: NECK_NAMES[n][0], en: NECK_NAMES[n][1] }, params: { necks: n } })),
+  keywords: ["n口", "多口", "multi-neck"],
   label(p, lang) {
-    const n = Number(p.necks);
-    const ja = n === 3 ? "三口フラスコ" : n === 2 ? "二口フラスコ" : "丸底フラスコ";
-    const en = n === 3 ? "three-neck flask" : n === 2 ? "two-neck flask" : "round-bottom flask";
-    return `${lang === "en" ? en : ja} (${p.volume} mL)`;
+    const nm = NECK_NAMES[Number(p.necks)] || NECK_NAMES[1];
+    return `${lang === "en" ? nm[1] : nm[0]} (${p.volume} mL)`;
   },
   build(p) {
     const sh = new Shape();
@@ -56,16 +64,18 @@ define({
     const yTop = -2 * r - j.ls - 12;
     const pieces = [circle(0, cy, r), tubeSeg(0, cy, 0, yTop, j.wt)];
     const sockets = [["neck", 0, yTop, -90, p.joint]];
-    const n = Number(p.necks);
-    const sides = n === 3 ? [1, -1] : n === 2 ? [1] : [];
-    for (const s of sides) {
-      const id = s > 0 ? "neck2" : "neck3";
-      if (p.sideStyle === "parallel") {
+    const n = Math.max(1, Math.min(5, Number(p.necks) || 1));
+    // 横の口: 右・左・右の外側・左の外側 の順 (ポートの名前は保存データに入るので変えない)
+    const sides = [[1, "neck2", 0], [-1, "neck3", 0], [1, "neck4", 1], [-1, "neck5", 1]].slice(0, n - 1);
+    for (const [s, id, outer] of sides) {
+      if (p.sideStyle === "parallel" && !outer) {
         const x = s * r * 0.62, yT = yTop + 8;
         pieces.push(tubeSeg(x, cy, x, yT, js.wt));
         sockets.push([id, x, yT, -90, p.sideJoint]);
       } else {
-        const a = 30, len = r + js.ls + 8;
+        // 外側の口は大きく傾けて、内側の口とぶつからないようにする
+        const a = outer ? (p.sideStyle === "parallel" ? 52 : 60) : 30;
+        const len = outer ? r + js.ls + 2 : r + js.ls + 8;
         const x = s * Math.sin(a * DEG) * len, y = cy - Math.cos(a * DEG) * len;
         pieces.push(tubeSeg(0, cy, x, y, js.wt));
         sockets.push([id, x, y, -90 + s * a, p.sideJoint]);

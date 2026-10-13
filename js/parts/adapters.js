@@ -1,7 +1,7 @@
 /* 蒸留ヘッド・クライゼンヘッド・減圧アダプターなどの接続部品 */
 
-import { define, pJoint, pRange, pBool } from "./registry.js";
-import { Shape, circle, tubeSeg, socket, cone, jdim, barbShapes, roundRect, rect, poly, frame } from "../draw.js";
+import { define, pJoint, pRange, pBool, pSelect, pColor, pLevel } from "./registry.js";
+import { Shape, circle, tubeSeg, socket, cone, jdim, barbShapes, roundRect, rect, poly, line, frame } from "../draw.js";
 import { DEG, normAngle } from "../geom.js";
 
 /** 栓 (コック) を管の途中に描く。x,y が中心、dir が管の向き */
@@ -166,6 +166,60 @@ define({
     sh.port("b", "hose", ...b.tip, 0, {});
     sh.port("c", "hose", ...c.tip, -90, {});
     sh.anchor = [0, 0];
+    return sh;
+  },
+});
+
+/* ---- ディーン・スターク管 (共沸脱水) ---- */
+define({
+  type: "deanStark",
+  name: { ja: "ディーン・スターク管", en: "Dean–Stark trap" },
+  cat: "adapter",
+  keywords: ["共沸", "脱水", "水分離", "Dean-Stark"],
+  params: [
+    pJoint(),
+    pSelect("volume", "受けの容量", [[10, "10 mL"], [20, "20 mL"], [50, "50 mL"]], 20),
+    pSelect("side", "受けの側", [["right", "右"], ["left", "左"]], "right"),
+    pLevel("level", "たまった水", 0.35),
+    pColor("color", "水の色", "#7fb8e6"),
+    pLevel("level2", "上の層 (溶媒)", 0.8),
+  ],
+  label: (p, lang) => (lang === "en" ? "Dean–Stark trap" : "ディーン・スターク管"),
+  build(p) {
+    const sh = new Shape();
+    const j = jdim(p.joint);
+    const s = p.side === "left" ? -1 : 1;
+    const v = Number(p.volume) / 20;
+    const D = s * 44;                       // 受け (目盛り管) の中心の x
+    const wg = Math.max(j.wt * 0.85, 13 * Math.pow(v, 0.25)); // 目盛り管の太さ
+    const yr = -40, ya = -120;              // 蒸気の管が曲がる所と、受けの上端
+    const yg0 = ya + 10, yg1 = yg0 + 70 * Math.pow(v, 0.45); // 目盛り管の範囲
+    const ytop = ya - 26;
+    const grad = poly([[D - wg / 2, yg0], [D + wg / 2, yg0], [D + wg / 2, yg1 - 6], [D + 3, yg1 + 2], [D - 3, yg1 + 2], [D - wg / 2, yg1 - 6]]);
+    sh.union([
+      tubeSeg(0, 0, 0, yr, j.wt * 0.8),
+      tubeSeg(0, yr, D, ya + 4, j.wt * 0.8),
+      circle(0, yr, j.wt * 0.4),
+      tubeSeg(D, yg0 + 2, D, ytop, j.wt),
+      grad,
+      tubeSeg(D, yg1, D, yg1 + 26, 5),
+    ]);
+    // 受けの中: 下に水、その上に溶媒
+    const yTopL = yg0 + 4;
+    const yw = yg1 - (yg1 - yTopL) * p.level, yo = yg1 - (yg1 - yTopL) * Math.max(p.level, p.level2);
+    if (yo < yw) sh.liquid([grad], yo, D, { color: "#c9d3dc", tone: 0.06, depth: yw - yo });
+    if (p.level > 0) sh.liquid([grad], yw, D, { color: p.color });
+    for (let k = 1; k < 6; k++) {
+      const y = yg1 - 6 - ((yg1 - yg0 - 12) * k) / 6;
+      sh.path(line(D - s * wg / 2, y, D - s * (wg / 2 - (k % 2 ? 3 : 5)), y), "hair");
+    }
+    stopcock(sh, D, yg1 + 12, 90, 5);
+    socket(sh, D, ytop, -90, p.joint);
+    cone(sh, 0, 0, 90, p.joint);
+    sh.port("bottom", "joint", 0, 0, 90, { size: p.joint, gender: "M", param: "joint" });
+    sh.port("top", "joint", D, ytop, -90, { size: p.joint, gender: "F", param: "joint" });
+    sh.port("grip", "grip", D + s * wg / 2, (yg0 + yg1) / 2, s > 0 ? 0 : 180, { width: wg });
+    sh.anchor = [D, (yg0 + yg1) / 2];
     return sh;
   },
 });

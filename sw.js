@@ -2,7 +2,7 @@
  * サイト直下のグラフアプリのワーカーより範囲が狭いので、このフォルダの中はこちらが受け持つ。 */
 "use strict";
 
-const CACHE = "labtsumiki-v1.2.0";
+const CACHE = "labtsumiki-v1.3.0";
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));

@@ -66,6 +66,7 @@ define({
   type: "allihn",
   name: { ja: "アリン冷却管 (球入り)", en: "Allihn condenser" },
   cat: "condenser",
+  keywords: ["アーリン", "球入り", "還流"],
   params: [pJoint(), pSelect("length", "外とうの長さ", [[200, "200 mm"], [300, "300 mm"]], 200), pSide],
   build(p) {
     return condenser(p, {
@@ -113,6 +114,37 @@ define({
         sh.path(coil, "thin");
         sh.path(new P().M(-rx, top).L(-rx, y0 + 13).L(-wj / 2 + 1, y0 + 13), "thin");
         sh.path(new P().M(rx * 0.1, bot).L(rx * 0.1, y0 + 9).Q(rx * 0.1, y0 + 6, rx * 0.5, y0 + 6).L(wj / 2 - 1, y0 + 6), "thin");
+      },
+    });
+  },
+});
+
+/* ---- グラハム冷却管 (蛇管) ---- */
+define({
+  type: "graham",
+  name: { ja: "グラハム冷却管 (蛇管)", en: "Graham condenser" },
+  cat: "condenser",
+  keywords: ["コイル", "coil", "蛇管"],
+  params: [pJoint(), pSelect("length", "外とうの長さ", [[200, "200 mm"], [300, "300 mm"]], 200), pSide],
+  build(p) {
+    return condenser(p, {
+      extraW: 22,
+      barbs: (y0, y1, wj, s) => [["waterIn", y1 - 14, s, "in"], ["waterOut", y0 + 14, s, "out"]],
+      inner: (sh, { wj, y0, y1 }) => {
+        // 蒸気が通る細い管がらせんに巻いている: 2 本の波線で 1 本の管に見せる
+        const top = y0 + 8, bot = y1 - 8, amp = wj / 2 - 6, g = 1.6;
+        const turns = Math.max(5, Math.round((bot - top) / 14));
+        const h = (bot - top) / turns;
+        const wave = (dx) => {
+          const q = new P().M(dx, y0 + 3).L(dx, top);
+          for (let i = 0; i < turns; i++) {
+            const a = top + h * i;
+            q.C(amp + dx, a, amp + dx, a + h * 0.5, dx, a + h * 0.5).C(-amp + dx, a + h * 0.5, -amp + dx, a + h, dx, a + h);
+          }
+          return q.L(dx, y1 - 3);
+        };
+        sh.path(wave(-g), "thin");
+        sh.path(wave(g), "thin");
       },
     });
   },

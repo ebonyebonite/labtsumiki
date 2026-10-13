@@ -36,11 +36,20 @@ define({
   },
 });
 
-/* ---- 湯浴・油浴・氷浴 ---- */
-const BATHS = { oil: ["オイルバス", "oil bath"], water: ["水浴", "water bath"], ice: ["氷浴", "ice bath"], dryice: ["ドライアイス浴", "dry ice bath"] };
+/* ---- 氷浴・氷水浴・水浴・湯浴・油浴など ---- */
+const BATHS = {
+  ice: ["氷浴", "ice bath"],
+  icewater: ["氷水浴", "ice-water bath"],
+  icesalt: ["氷–食塩浴", "ice-salt bath"],
+  water: ["水浴", "water bath"],
+  hot: ["湯浴", "hot water bath"],
+  oil: ["油浴 (オイルバス)", "oil bath"],
+  sand: ["砂浴", "sand bath"],
+  dryice: ["ドライアイス浴", "dry ice bath"],
+};
 define({
   type: "bath",
-  name: { ja: "オイルバス・水浴", en: "bath" },
+  name: { ja: "浴 (氷・水・湯・油)", en: "bath" },
   cat: "heat",
   grounded: true,
   params: [
@@ -48,7 +57,9 @@ define({
     pFitSize,
     pRange("depth", "浸かる深さ", 0.2, 1, 0.05, 0.6, "%"),
   ],
-  label: (p, lang) => BATHS[p.medium][lang === "en" ? 1 : 0],
+  presets: Object.entries(BATHS).map(([k, v]) => ({ name: { ja: v[0], en: v[1] }, params: { medium: k } })),
+  keywords: ["バス", "bath", "冷却", "加熱"],
+  label: (p, lang) => (BATHS[p.medium] || BATHS.oil)[lang === "en" ? 1 : 0],
   build(p, ctx = {}) {
     const sh = new Shape();
     const R = fitRadius(p, ctx);
@@ -58,16 +69,38 @@ define({
     const top = floor - H;
     const wall = new P();
     wall.M(-W / 2, top).L(-W / 2, floor - 4).Q(-W / 2, floor + 3, -W / 2 + 7, floor + 3).L(W / 2 - 7, floor + 3).Q(W / 2, floor + 3, W / 2, floor - 4).L(W / 2, top);
-    const medium = p.medium === "oil" ? "oil" : p.medium === "dryice" ? "n2" : "water";
-    // 奥 (フラスコより先に描く) と、手前の半透明の液 (沈んだ部分が透けて見える)
+    const m = p.medium;
+    const medium = m === "oil" ? "oil" : m === "dryice" ? "n2" : "water";
     sh.path(wall, "glass", "under");
-    sh.liquid([wall], level, 0, { fill: medium, alpha: 1 }, "under");
-    sh.liquid([wall], level, 0, { fill: medium, alpha: 0.4 }, "over");
-    if (p.medium === "ice" || p.medium === "dryice") {
-      const pts = [[-0.38, 0.35], [0.36, 0.5], [-0.3, 0.75], [0.3, 0.2], [0.42, 0.8]];
+    if (m !== "ice" && m !== "sand") {
+      // 奥 (フラスコより先に描く) と、手前の半透明の液 (沈んだ部分が透けて見える)
+      sh.liquid([wall], level, 0, { fill: medium, alpha: 1 }, "under");
+      sh.liquid([wall], level, 0, { fill: medium, alpha: 0.4 }, "over");
+    }
+    if (m === "ice" || m === "icewater" || m === "icesalt" || m === "dryice") {
+      // 氷 (ドライアイス) のかたまり。氷だけの浴は上まで詰める
+      const pts = m === "ice"
+        ? [[-0.4, 0.08], [-0.2, 0.12], [0.22, 0.06], [0.4, 0.14], [-0.38, 0.45], [0.36, 0.5], [-0.3, 0.8], [0.3, 0.22], [0.42, 0.82], [-0.14, 0.62], [0.16, 0.78]]
+        : [[-0.38, 0.35], [0.36, 0.5], [-0.3, 0.75], [0.3, 0.2], [0.42, 0.8]];
       for (const [fx, fy] of pts) {
         const x = fx * W, y = level + (floor - level) * fy;
         sh.path(roundRect(x - 4, y - 4, 8, 8, 1.5), "thin", "over");
+      }
+      if (m === "ice") sh.path(new P().M(-W / 2, level).L(-W / 2 + 6, level - 3).L(-W / 2 + 13, level + 1).L(W / 2 - 13, level + 1).L(W / 2 - 6, level - 3).L(W / 2, level), "thin", "over");
+    }
+    if (m === "sand") {
+      sh.path(line(-W / 2, level, W / 2, level), "thin", "over");
+      for (let y = level + 5, k = 0; y < floor - 1; y += 5, k++) {
+        for (let x = -W / 2 + (k % 2 ? 6 : 3.5); x < W / 2 - 2; x += 6) {
+          if (Math.abs(x) > R * 0.95 || y > level + 2 * R * p.depth * 0.95) sh.path(circle(x, y, 0.7), "ink", "over");
+        }
+      }
+    }
+    if (m === "hot") {
+      // 湯気: 液面の上の小さな波線
+      for (const fx of [-0.36, 0.36]) {
+        const x = fx * W, y0 = level - 4;
+        sh.path(new P().M(x, y0).Q(x - 3, y0 - 4, x, y0 - 8).Q(x + 3, y0 - 12, x, y0 - 16), "thin", "over");
       }
     }
     sh.path(wall, "line", "over");

@@ -1,7 +1,7 @@
 /* 画面の操作: 部品一覧・キャンバス (ドラッグでつなぐ)・設定欄・書き出し */
 
 import "./parts/index.js";
-import { CATEGORIES, allDefs, getDef, withDefaults, partLabel } from "./parts/registry.js";
+import { CATEGORIES, allDefs, getDef, withDefaults, partLabel, hasDef } from "./parts/registry.js";
 import {
   newDoc, normalizeDoc, addPart, getPart, removePart, detachPart, addTube, canMate, solve, componentOf,
   transformParts, moveParts, snapTransform, buildShape, itemPort, compBox, linkHasClip,
@@ -752,9 +752,9 @@ function autoConnect(newId, selId) {
   return true;
 }
 
-function addFromPalette(type, at = null) {
+function addFromPalette(type, at = null, params = {}) {
   const doc = state.doc;
-  const part = addPart(doc, type, {}, 0, 0);
+  const part = addPart(doc, type, structuredClone(params), 0, 0);
   let connected = false;
   if (!at && state.sel?.type === "part" && getPart(doc, state.sel.id)) connected = autoConnect(part.id, state.sel.id);
   if (!connected) {
@@ -792,20 +792,29 @@ function buildPalette() {
   const list = $("palette-list");
   list.innerHTML = "";
   const q = $("palette-search").value.trim().toLowerCase();
+  const hit = (...names) => !q || names.some((n) => n && n.toLowerCase().includes(q));
   for (const [cat, catName] of CATEGORIES) {
-    const defs = allDefs().filter((d) => d.cat === cat && (!q || d.name.ja.toLowerCase().includes(q) || d.name.en.toLowerCase().includes(q) || d.type.toLowerCase().includes(q)));
-    if (!defs.length) continue;
+    // 1 つの部品でも、よく使う設定 (presets) は別の項目として並べる
+    const entries = [];
+    for (const def of allDefs().filter((d) => d.cat === cat)) {
+      const list = def.presets || [{ name: def.name, params: {} }];
+      for (const pr of list) {
+        if (hit(pr.name.ja, pr.name.en, def.name.ja, def.name.en, def.type, ...(def.keywords || []), ...(pr.keywords || []))) entries.push({ def, pr });
+      }
+    }
+    if (!entries.length) continue;
     const sec = el("div", { class: "cat" }, [el("h3", {}, catName)]);
     const grid = el("div", { class: "cat-grid" });
-    for (const def of defs) {
-      const sh = buildShape(def, withDefaults(def, {}), {});
+    for (const { def, pr } of entries) {
+      const sh = buildShape(def, withDefaults(def, pr.params), {});
       const size = Math.max(sh.box.x1 - sh.box.x0, sh.box.y1 - sh.box.y0);
       const thumb = el("span", { class: "thumb" });
-      thumb.innerHTML = shapeToSvg(sh, { th: THEMES.line, lw: size / 55, uid: `pal-${def.type}`, pad: size * 0.04, width: 48, height: 48 });
-      const btn = el("button", { class: "pal-item", type: "button", draggable: "true", title: `${def.name.ja} (${def.name.en})` }, [thumb, el("span", {}, def.name.ja)]);
-      btn.addEventListener("click", () => addFromPalette(def.type));
+      const key = `${def.type}-${(def.presets || []).indexOf(pr)}`;
+      thumb.innerHTML = shapeToSvg(sh, { th: THEMES.line, lw: size / 55, uid: `pal-${key}`, pad: size * 0.04, width: 48, height: 48 });
+      const btn = el("button", { class: "pal-item", type: "button", draggable: "true", title: `${pr.name.ja} (${pr.name.en})` }, [thumb, el("span", {}, pr.name.ja)]);
+      btn.addEventListener("click", () => addFromPalette(def.type, null, pr.params));
       btn.addEventListener("dragstart", (e) => {
-        e.dataTransfer.setData("text/x-labtsumiki-part", def.type);
+        e.dataTransfer.setData("text/x-labtsumiki-part", JSON.stringify({ type: def.type, params: pr.params }));
         e.dataTransfer.effectAllowed = "copy";
       });
       grid.appendChild(btn);
@@ -1351,10 +1360,13 @@ function init() {
   canvas.addEventListener("wheel", onWheel, { passive: false });
   canvas.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("text/x-labtsumiki-part")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } });
   canvas.addEventListener("drop", (e) => {
-    const type = e.dataTransfer.getData("text/x-labtsumiki-part");
-    if (!type) return;
+    const data = e.dataTransfer.getData("text/x-labtsumiki-part");
+    if (!data) return;
     e.preventDefault();
-    addFromPalette(type, toScene(e));
+    let item;
+    try { item = JSON.parse(data); } catch { item = { type: data }; }
+    if (!item?.type || !hasDef(item.type)) return;
+    addFromPalette(item.type, toScene(e), item.params || {});
   });
   window.addEventListener("keydown", onKey);
   window.addEventListener("resize", () => applyView());
